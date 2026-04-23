@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador IoT - Sistema de Riego Automático con ESP32</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --pcb-bg: #1a1d24;
+    --pcb-dark: #0f1115;
+    --pcb-green: #0d6b3e;
+    --pcb-green-light: #14a558;
+    --esp-green: #1a4d2e;
+    --esp-green-dark: #0d2818;
+    --relay-blue: #1e4d8f;
+    --dht-blue: #2c5db0;
+    --wire-red: #e74c3c;
+    --wire-black: #2c3e50;
+    --wire-yellow: #f1c40f;
+    --wire-green: #27ae60;
+    --wire-blue: #3498db;
+    --wire-orange: #e67e22;
+    --led-on: #2ecc71;
+    --panel-bg: #22262e;
+    --panel-border: #3a3f4a;
+    --text-main: #e8eaed;
+    --text-dim: #9aa0a6;
+    --accent: #00d9ff;
+  }
+
+  html, body {
+    font-family: 'Segoe UI', 'SF Pro Display', Roboto, sans-serif;
+    background: var(--pcb-bg);
+    color: var(--text-main);
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(0, 217, 255, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(46, 204, 113, 0.03) 0%, transparent 50%),
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 25px 25px, 25px 25px;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 16px;
+    padding: 16px;
+    min-height: 100vh;
+  }
+
+  /* ===== HEADER ===== */
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(135deg, #1f2937, #111827);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 14px 22px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1::before {
+    content: '';
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--led-on);
+    box-shadow: 0 0 10px var(--led-on);
+    animation: pulse 1.8s infinite;
+  }
+  .header-status {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #2a3040;
+    border: 1px solid #3a4050;
+  }
+  .badge .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #888;
+  }
+  .badge.on { background: rgba(46,204,113,0.15); border-color: #2ecc71; color: #6ee7a3; }
+  .badge.on .dot { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; animation: blink 1.2s infinite; }
+  .badge.off { background: rgba(231,76,60,0.15); border-color: #e74c3c; color: #f0a59c; }
+  .badge.off .dot { background: #e74c3c; }
+  .badge.warn { background: rgba(241,196,15,0.15); border-color: #f1c40f; color: #f9e07f; }
+  .badge.warn .dot { background: #f1c40f; }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: 0.7; }
+  }
+
+  /* ===== CANVAS AREA ===== */
+  .canvas-area {
+    background:
+      radial-gradient(circle at 50% 50%, #20242c 0%, #14171c 100%);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 10px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 60px rgba(0,0,0,0.5);
+    min-height: 640px;
+  }
+  .canvas-area::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0, 217, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 217, 255, 0.04) 1px, transparent 1px);
+    background-size: 20px 20px;
+    pointer-events: none;
+  }
+  .canvas-area svg.main {
+    width: 100%;
+    height: auto;
+    display: block;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ===== CONTROL PANEL ===== */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .card {
+    background: linear-gradient(180deg, var(--panel-bg), #1b1e26);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .card h3 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h3::before {
+    content: '';
+    width: 4px; height: 14px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  .control-row {
+    margin-bottom: 14px;
+  }
+  .control-row:last-child { margin-bottom: 0; }
+  .control-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: var(--text-dim);
+  }
+  .control-label .value {
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    color: var(--text-main);
+    background: #0f1115;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid #2a2e38;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(to right, #e74c3c 0%, #f1c40f 50%, #2ecc71 100%);
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(0,217,255,0.5);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid var(--accent);
+    cursor: pointer;
+  }
+
+  .toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+  }
+  .switch {
+    position: relative;
+    width: 48px;
+    height: 26px;
+  }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider-toggle {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: #3a3f4a;
+    border-radius: 26px;
+    transition: 0.3s;
+  }
+  .slider-toggle::before {
+    content: '';
+    position: absolute;
+    width: 20px; height: 20px;
+    left: 3px; bottom: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: 0.3s;
+  }
+  input:checked + .slider-toggle {
+    background: linear-gradient(135deg, #27ae60, #2ecc71);
+    box-shadow: 0 0 10px rgba(46,204,113,0.5);
+  }
+  input:checked + .slider-toggle::before { transform: translateX(22px); }
+  input:disabled + .slider-toggle { opacity: 0.5; cursor: not-allowed; }
+
+  .mode-buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .mode-btn {
+    flex: 1;
+    padding: 8px;
+    background: #2a2e38;
+    border: 1px solid #3a3f4a;
+    border-radius: 6px;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .mode-btn.active {
+    background: linear-gradient(135deg, #0099ff, #00d9ff);
+    color: #0f1115;
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(0,217,255,0.4);
+  }
+
+  .mqtt-json {
+    background: #0a0d11;
+    border: 1px solid #1e2128;
+    border-radius: 6px;
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #6ee7a3;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 80px;
+    overflow-y: auto;
+  }
+
+  /* ===== TERMINAL LOG ===== */
+  .terminal {
+    background: #000;
+    border: 1px solid #0f3f0f;
+    border-radius: 8px;
+    padding: 10px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: 'Courier New', 'Consolas', monospace;
+    font-size: 11.5px;
+    color: #00ff41;
+    line-height: 1.5;
+    box-shadow: inset 0 0 20px rgba(0,255,65,0.1);
+  }
+  .terminal::-webkit-scrollbar { width: 6px; }
+  .terminal::-webkit-scrollbar-track { background: #0a0a0a; }
+  .terminal::-webkit-scrollbar-thumb { background: #1a5a1a; border-radius: 3px; }
+
+  .log-line { margin-bottom: 2px; }
+  .log-time { color: #888; }
+  .log-warn { color: #ffd700; }
+  .log-err { color: #ff5555; }
+  .log-ok { color: #00ff41; }
+  .log-mqtt { color: #00d9ff; }
+
+  /* ===== SVG ELEMENT ANIMATIONS ===== */
+  @keyframes wifi-blink {
+    0%, 100% { fill: #2ecc71; filter: drop-shadow(0 0 3px #2ecc71); }
+    50% { fill: #0a3a1e; filter: none; }
+  }
+  .wifi-led.connected { animation: wifi-blink 1.5s infinite; }
+  .wifi-led.disconnected { fill: #5a1a1a; }
+
+  @keyframes pump-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pump-vibrate {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(0.5px, -0.5px); }
+    50% { transform: translate(-0.5px, 0.5px); }
+    75% { transform: translate(0.5px, 0.5px); }
+  }
+  .pump-rotor.active { animation: pump-spin 0.4s linear infinite; transform-origin: center; transform-box: fill-box; }
+  .pump-body.active { animation: pump-vibrate 0.1s infinite; transform-box: fill-box; }
+
+  @keyframes bubble-rise {
+    0% { transform: translateY(0) scale(1); opacity: 0.8; }
+    100% { transform: translateY(-140px) scale(0.4); opacity: 0; }
+  }
+  .bubble {
+    animation: bubble-rise 2s linear infinite;
+  }
+
+  @keyframes drop-fall {
+    0% { transform: translateY(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(80px); opacity: 0; }
+  }
+  .water-drop {
+    animation: drop-fall 1.2s linear infinite;
+  }
+
+  @keyframes relay-click {
+    0%, 100% { fill: #1e4d8f; }
+    50% { fill: #3a7bd5; }
+  }
+  .relay-coil.active { animation: relay-click 0.8s infinite; }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #1a1d24; }
+  ::-webkit-scrollbar-thumb { background: #3a3f4a; border-radius: 4px; }
+
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 1fr; }
+  }
+
+  /* Floating DHT badge */
+  .dht-badge {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    fill: #fff;
+  }
+  .oled-text {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    fill: #fff;
+  }
+  .pin-label {
+    font-family: 'Courier New', monospace;
+    font-size: 7px;
+    fill: #ffd700;
+    font-weight: bold;
+  }
+  .comp-label {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 10px;
+    fill: #9aa0a6;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>🌱 Sistema de Riego Automático IoT · ESP32 Simulator</h1>
+    <div class="header-status">
+      <span class="badge on" id="wifiBadge"><span class="dot"></span>Wi-Fi</span>
+      <span class="badge on" id="mqttBadge"><span class="dot"></span>MQTT</span>
+      <span class="badge off" id="pumpBadge"><span class="dot"></span>Bomba: OFF</span>
+      <span class="badge warn" id="lastIrrigBadge"><span class="dot"></span>Último riego: --</span>
+    </div>
+  </header>
+
+  <!-- ============ CANVAS ÁREA PRINCIPAL ============ -->
+  <section class="canvas-area">
+    <svg class="main" viewBox="0 0 1000 660" xmlns="http://www.w3.org/2000/svg">
+
+      <defs>
+        <!-- Gradientes -->
+        <linearGradient id="pcbGrad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#1a5d3a"/>
+          <stop offset="100%" stop-color="#0d3a22"/>
+        </linearGradient>
+        <linearGradient id="waterGrad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#5dc9f5" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#1e7ab8" stop-opacity="0.95"/>
+        </linearGradient>
+        <linearGradient id="tankGrad" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.25)"/>
+          <stop offset="50%" stop-color="rgba(255,255,255,0.05)"/>
+          <stop offset="100%" stop-color="rgba(255,255,255,0.2)"/>
+        </linearGradient>
+        <linearGradient id="relayGrad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#2d6bc4"/>
+          <stop offset="100%" stop-color="#133566"/>
+        </linearGradient>
+        <linearGradient id="dhtGrad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#3578d4"/>
+          <stop offset="100%" stop-color="#1a3d7a"/>
+        </linearGradient>
+        <linearGradient id="leafGrad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#2ecc71"/>
+          <stop offset="100%" stop-color="#145a2c"/>
+        </linearGradient>
+        <radialGradient id="pumpGrad" cx="0.5" cy="0.5">
+          <stop offset="0%" stop-color="#888"/>
+          <stop offset="100%" stop-color="#333"/>
+        </radialGradient>
+        <pattern id="pcbLines" patternUnits="userSpaceOnUse" width="8" height="8">
+          <rect width="8" height="8" fill="url(#pcbGrad)"/>
+          <path d="M 0 4 L 8 4" stroke="#c9a227" stroke-width="0.3" opacity="0.4"/>
+        </pattern>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- =================== FUENTE DE ALIMENTACIÓN USB =================== -->
+      <g id="powerSupply" transform="translate(20,40)">
+        <rect x="0" y="0" width="70" height="35" rx="4" fill="#2a2a2a" stroke="#555" stroke-width="1"/>
+        <rect x="4" y="4" width="62" height="27" rx="2" fill="#111"/>
+        <text x="35" y="15" text-anchor="middle" fill="#fff" font-size="8" font-family="Arial" font-weight="bold">USB 5V</text>
+        <text x="35" y="26" text-anchor="middle" fill="#ffd700" font-size="7" font-family="Arial">⚡ POWER</text>
+        <!-- Conector USB -->
+        <rect x="70" y="12" width="12" height="11" fill="#aaa" stroke="#333"/>
+        <rect x="72" y="14" width="8" height="7" fill="#222"/>
+        <text x="35" y="48" class="comp-label" text-anchor="middle">Fuente 5V</text>
+      </g>
+
+      <!-- Cable USB → ESP32 VIN (rojo) -->
+      <path d="M 82 57 Q 120 57, 130 80 L 165 80" stroke="#e74c3c" stroke-width="2.5" fill="none"/>
+      <!-- Cable USB → ESP32 GND (negro) -->
+      <path d="M 82 65 Q 120 65, 130 92 L 165 92" stroke="#2c3e50" stroke-width="2.5" fill="none"/>
+
+      <!-- =================== ESP32 PCB =================== -->
+      <g id="esp32" transform="translate(165,60)">
+        <!-- Base PCB -->
+        <rect x="0" y="0" width="180" height="240" rx="6" fill="url(#pcbGrad)" stroke="#0a2817" stroke-width="1.5"/>
+
+        <!-- Tracks PCB decorativas -->
+        <path d="M 10 20 L 50 20 L 50 40 L 90 40" stroke="#c9a227" stroke-width="0.8" fill="none" opacity="0.5"/>
+        <path d="M 170 30 L 130 30 L 130 60 L 100 60" stroke="#c9a227" stroke-width="0.8" fill="none" opacity="0.5"/>
+        <path d="M 10 200 L 60 200 L 60 180" stroke="#c9a227" stroke-width="0.8" fill="none" opacity="0.5"/>
+        <circle cx="50" cy="20" r="1.5" fill="#c9a227"/>
+        <circle cx="90" cy="40" r="1.5" fill="#c9a227"/>
+        <circle cx="130" cy="60" r="1.5" fill="#c9a227"/>
+
+        <!-- Chip ESP32 principal (metálico) -->
+        <rect x="50" y="70" width="80" height="80" rx="3" fill="#2a2a2a" stroke="#555"/>
+        <rect x="52" y="72" width="76" height="76" fill="#1a1a1a"/>
+        <text x="90" y="105" text-anchor="middle" fill="#fff" font-size="11" font-family="Arial" font-weight="bold">ESP32</text>
+        <text x="90" y="120" text-anchor="middle" fill="#aaa" font-size="7">WROOM-32</text>
+        <text x="90" y="135" text-anchor="middle" fill="#888" font-size="6">ESP-WROOM</text>
+        <!-- Antena Wi-Fi simbólica -->
+        <rect x="60" y="35" width="60" height="25" fill="#c9c9c9" stroke="#888"/>
+        <path d="M 70 45 Q 90 30, 110 45 M 75 50 Q 90 38, 105 50" stroke="#333" stroke-width="0.8" fill="none"/>
+        <text x="90" y="57" text-anchor="middle" fill="#000" font-size="5" font-weight="bold">Wi-Fi/BT</text>
+
+        <!-- LED Wi-Fi estado -->
+        <circle class="wifi-led connected" id="wifiLed" cx="25" cy="25" r="4" fill="#2ecc71"/>
+        <text x="25" y="42" text-anchor="middle" fill="#fff" font-size="6">WiFi</text>
+
+        <!-- Botones -->
+        <rect x="15" y="170" width="14" height="10" rx="1" fill="#1a1a1a" stroke="#444"/>
+        <text x="22" y="190" text-anchor="middle" fill="#fff" font-size="5">BOOT</text>
+        <rect x="150" y="170" width="14" height="10" rx="1" fill="#1a1a1a" stroke="#444"/>
+        <text x="157" y="190" text-anchor="middle" fill="#fff" font-size="5">RST</text>
+
+        <!-- Puerto micro-USB abajo -->
+        <rect x="70" y="225" width="40" height="12" fill="#aaa" stroke="#333"/>
+        <rect x="74" y="228" width="32" height="7" fill="#222"/>
+
+        <!-- Pines izquierdos (cada uno con label) -->
+        <g font-family="Courier New" font-size="6" font-weight="bold">
+          <!-- 3V3 -->
+          <rect x="-8" y="78" width="10" height="6" fill="#ffd700"/>
+          <text x="-12" y="83" text-anchor="end" fill="#ffd700">3V3</text>
+          <!-- GND -->
+          <rect x="-8" y="92" width="10" height="6" fill="#ffd700"/>
+          <text x="-12" y="97" text-anchor="end" fill="#ffd700">GND</text>
+          <!-- GPIO34 (sensor suelo) -->
+          <rect x="-8" y="106" width="10" height="6" fill="#ffd700"/>
+          <text x="-12" y="111" text-anchor="end" fill="#ffd700">GPIO34</text>
+          <!-- GPIO33 (relé) -->
+          <rect x="-8" y="120" width="10" height="6" fill="#ffd700"/>
+          <text x="-12" y="125" text-anchor="end" fill="#ffd700">GPIO33</text>
+          <!-- GPIO4 (DHT22) -->
+          <rect x="-8" y="134" width="10" height="6" fill="#ffd700"/>
+          <text x="-12" y="139" text-anchor="end" fill="#ffd700">GPIO4</text>
+        </g>
+
+        <!-- Pines derechos -->
+        <g font-family="Courier New" font-size="6" font-weight="bold">
+          <!-- VIN 5V -->
+          <rect x="178" y="78" width="10" height="6" fill="#ffd700"/>
+          <text x="192" y="83" fill="#ffd700">VIN</text>
+          <!-- GND -->
+          <rect x="178" y="92" width="10" height="6" fill="#ffd700"/>
+          <text x="192" y="97" fill="#ffd700">GND</text>
+          <!-- GPIO21 SDA -->
+          <rect x="178" y="106" width="10" height="6" fill="#ffd700"/>
+          <text x="192" y="111" fill="#ffd700">GPIO21</text>
+          <!-- GPIO22 SCL -->
+          <rect x="178" y="120" width="10" height="6" fill="#ffd700"/>
+          <text x="192" y="125" fill="#ffd700">GPIO22</text>
+          <!-- 3V3 extra -->
+          <rect x="178" y="134" width="10" height="6" fill="#ffd700"/>
+          <text x="192" y="139" fill="#ffd700">3V3</text>
+        </g>
+
+        <text x="90" y="258" text-anchor="middle" class="comp-label">ESP32 DevKit</text>
+      </g>
+
+      <!-- =================== SENSOR HUMEDAD SUELO =================== -->
+      <g id="soilSensor" transform="translate(30,360)">
+        <!-- Módulo PCB -->
+        <rect x="20" y="0" width="85" height="28" rx="3" fill="#0d3a22" stroke="#1a5d3a"/>
+        <circle cx="30" cy="14" r="3" fill="#222" stroke="#888"/>
+        <circle cx="45" cy="14" r="3" fill="#222" stroke="#888"/>
+        <rect x="55" y="8" width="20" height="12" fill="#2a2a2a" stroke="#555"/>
+        <text x="65" y="16" text-anchor="middle" fill="#fff" font-size="4">LM393</text>
+        <!-- Pines -->
+        <rect x="85" y="4" width="4" height="3" fill="#ffd700"/>
+        <rect x="85" y="11" width="4" height="3" fill="#ffd700"/>
+        <rect x="85" y="18" width="4" height="3" fill="#ffd700"/>
+        <text x="92" y="7" font-size="4" fill="#fff">VCC</text>
+        <text x="92" y="14" font-size="4" fill="#fff">GND</text>
+        <text x="92" y="21" font-size="4" fill="#fff">AO</text>
+
+        <!-- Electrodos sonda -->
+        <g id="soilProbe">
+          <rect x="35" y="28" width="3" height="60" fill="#b08d57"/>
+          <rect x="50" y="28" width="3" height="60" fill="#b08d57"/>
+          <!-- Electrodos finales -->
+          <polygon points="35,88 38,88 37,95" fill="#888"/>
+          <polygon points="50,88 53,88 51,95" fill="#888"/>
+          <!-- Tierra/suelo -->
+          <path id="soilGround" d="M 0 95 L 120 95 L 120 115 L 0 115 Z" fill="#6b4423"/>
+          <path d="M 5 97 Q 15 99, 25 97 Q 35 99, 45 97 Q 55 99, 65 97 Q 75 99, 85 97 Q 95 99, 115 97" stroke="#3d2914" stroke-width="0.5" fill="none"/>
+          <!-- Humedad visible: gotas en el suelo -->
+          <g id="soilDrops" opacity="0.7">
+            <circle cx="15" cy="105" r="1.5" fill="#3498db"/>
+            <circle cx="30" cy="108" r="1.2" fill="#3498db"/>
+            <circle cx="75" cy="104" r="1.3" fill="#3498db"/>
+            <circle cx="95" cy="110" r="1.5" fill="#3498db"/>
+            <circle cx="60" cy="112" r="1" fill="#3498db"/>
+          </g>
+        </g>
+        <text x="60" y="130" text-anchor="middle" class="comp-label">Sensor Humedad Suelo</text>
+        <text x="60" y="142" text-anchor="middle" font-size="8" fill="#00d9ff" font-family="Courier New" font-weight="bold">
+          <tspan id="soilValLabel">--%</tspan>
+        </text>
+      </g>
+
+      <!-- Cableado SENSOR SUELO → ESP32 -->
+      <!-- VCC rojo: módulo → 3V3 (pin izq ESP32) -->
+      <path d="M 125 364 Q 145 360, 150 300 L 157 138" stroke="#e74c3c" stroke-width="2" fill="none"/>
+      <!-- GND negro: módulo → GND -->
+      <path d="M 125 371 Q 148 370, 152 310 L 157 152" stroke="#2c3e50" stroke-width="2" fill="none"/>
+      <!-- Señal amarilla (analógica): AO → GPIO34 -->
+      <path d="M 125 378 Q 150 378, 155 320 L 157 166" stroke="#f1c40f" stroke-width="2" fill="none"/>
+
+      <!-- =================== DHT22 =================== -->
+      <g id="dht22" transform="translate(30,540)">
+        <rect x="0" y="0" width="50" height="75" rx="4" fill="url(#dhtGrad)" stroke="#0e2650"/>
+        <!-- Rejilla ventilación -->
+        <g stroke="#1a3d7a" stroke-width="0.8">
+          <line x1="6" y1="10" x2="44" y2="10"/>
+          <line x1="6" y1="16" x2="44" y2="16"/>
+          <line x1="6" y1="22" x2="44" y2="22"/>
+          <line x1="6" y1="28" x2="44" y2="28"/>
+          <line x1="6" y1="34" x2="44" y2="34"/>
+          <line x1="6" y1="40" x2="44" y2="40"/>
+          <line x1="6" y1="46" x2="44" y2="46"/>
+          <line x1="6" y1="52" x2="44" y2="52"/>
+        </g>
+        <text x="25" y="64" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold" font-family="Arial">DHT22</text>
+        <!-- Pines -->
+        <rect x="10" y="72" width="3" height="10" fill="#c0c0c0"/>
+        <rect x="23" y="72" width="3" height="10" fill="#c0c0c0"/>
+        <rect x="36" y="72" width="3" height="10" fill="#c0c0c0"/>
+        <text x="11" y="92" font-size="5" fill="#fff">VCC</text>
+        <text x="22" y="92" font-size="5" fill="#fff">DATA</text>
+        <text x="35" y="92" font-size="5" fill="#fff">GND</text>
+
+        <text x="25" y="108" text-anchor="middle" class="comp-label">DHT22</text>
+
+        <!-- Badge flotante con valores -->
+        <g id="dhtBadge" transform="translate(60,0)">
+          <rect x="0" y="0" width="95" height="48" rx="6" fill="#000" stroke="#00d9ff" stroke-width="1" opacity="0.9"/>
+          <text x="8" y="14" class="dht-badge" fill="#ff7675">🌡 T:</text>
+          <text x="88" y="14" class="dht-badge" text-anchor="end" fill="#ff7675" font-weight="bold">
+            <tspan id="dhtTemp">25.0°C</tspan>
+          </text>
+          <line x1="5" y1="22" x2="90" y2="22" stroke="#333" stroke-dasharray="2,2"/>
+          <text x="8" y="36" class="dht-badge" fill="#74b9ff">💧 H:</text>
+          <text x="88" y="36" class="dht-badge" text-anchor="end" fill="#74b9ff" font-weight="bold">
+            <tspan id="dhtHum">60.0%</tspan>
+          </text>
+        </g>
+      </g>
+
+      <!-- Cables DHT22 → ESP32 -->
+      <!-- VCC rojo: DHT VCC → 3V3 -->
+      <path d="M 42 612 Q 25 620, 20 480 Q 15 340, 80 200 Q 130 160, 157 138" stroke="#e74c3c" stroke-width="2" fill="none" opacity="0.85"/>
+      <!-- DATA verde: DHT DATA → GPIO4 -->
+      <path d="M 55 612 Q 40 620, 35 500 Q 30 380, 90 220 Q 130 180, 157 194" stroke="#27ae60" stroke-width="2" fill="none" opacity="0.85"/>
+      <!-- GND negro: DHT GND → GND ESP32 -->
+      <path d="M 68 612 Q 55 625, 50 520 Q 45 400, 100 240 Q 135 200, 157 152" stroke="#2c3e50" stroke-width="2" fill="none" opacity="0.85"/>
+
+      <!-- =================== OLED DISPLAY =================== -->
+      <g id="oled" transform="translate(400,50)">
+        <rect x="0" y="0" width="140" height="75" rx="4" fill="#0a0a0a" stroke="#333" stroke-width="1.5"/>
+        <rect x="8" y="8" width="124" height="55" rx="2" fill="#000" stroke="#1a1a1a"/>
+        <!-- Pantalla OLED -->
+        <rect x="10" y="10" width="120" height="51" fill="#000"/>
+        <!-- Contenido -->
+        <text x="15" y="22" class="oled-text" font-size="9" fill="#5dc9f5">SmartIrrig v1.0</text>
+        <line x1="13" y1="26" x2="127" y2="26" stroke="#333"/>
+        <text x="15" y="38" class="oled-text" font-size="8">Hum: <tspan id="oledHum" fill="#2ecc71">--%</tspan></text>
+        <text x="15" y="48" class="oled-text" font-size="8">Tmp: <tspan id="oledTemp" fill="#ff7675">--°C</tspan></text>
+        <text x="15" y="58" class="oled-text" font-size="8">Pump: <tspan id="oledPump" fill="#e74c3c">OFF</tspan></text>
+
+        <!-- Pines OLED (4 pines SDA, SCL, VCC, GND) -->
+        <g>
+          <rect x="20" y="75" width="3" height="8" fill="#c0c0c0"/>
+          <rect x="40" y="75" width="3" height="8" fill="#c0c0c0"/>
+          <rect x="60" y="75" width="3" height="8" fill="#c0c0c0"/>
+          <rect x="80" y="75" width="3" height="8" fill="#c0c0c0"/>
+          <text x="21" y="92" font-size="5" fill="#aaa">GND</text>
+          <text x="41" y="92" font-size="5" fill="#aaa">VCC</text>
+          <text x="61" y="92" font-size="5" fill="#aaa">SCL</text>
+          <text x="81" y="92" font-size="5" fill="#aaa">SDA</text>
+        </g>
+        <text x="70" y="108" text-anchor="middle" class="comp-label">OLED 0.96" I²C</text>
+      </g>
+
+      <!-- Cables OLED → ESP32 (I2C) -->
+      <!-- GND negro: OLED GND → ESP32 GND -->
+      <path d="M 421 135 Q 400 160, 395 180 L 353 194" stroke="#2c3e50" stroke-width="2" fill="none"/>
+      <!-- VCC rojo: OLED VCC → 3V3 -->
+      <path d="M 441 135 Q 420 165, 410 200 L 353 208" stroke="#e74c3c" stroke-width="2" fill="none"/>
+      <!-- SCL azul: OLED SCL → GPIO22 -->
+      <path d="M 461 135 Q 445 170, 430 210 L 353 180" stroke="#3498db" stroke-width="2" fill="none"/>
+      <!-- SDA naranja: OLED SDA → GPIO21 -->
+      <path d="M 481 135 Q 470 175, 450 220 L 353 166" stroke="#e67e22" stroke-width="2" fill="none"/>
+
+      <!-- =================== RELÉ =================== -->
+      <g id="relay" transform="translate(400,180)">
+        <rect x="0" y="0" width="100" height="70" rx="4" fill="url(#relayGrad)" stroke="#0a2344"/>
+        <!-- Bobina del relé -->
+        <g class="relay-coil" id="relayCoil">
+          <rect x="15" y="15" width="35" height="40" rx="3" fill="#1e4d8f" stroke="#0a2344"/>
+          <line x1="20" y1="22" x2="45" y2="22" stroke="#c9a227" stroke-width="0.6"/>
+          <line x1="20" y1="28" x2="45" y2="28" stroke="#c9a227" stroke-width="0.6"/>
+          <line x1="20" y1="34" x2="45" y2="34" stroke="#c9a227" stroke-width="0.6"/>
+          <line x1="20" y1="40" x2="45" y2="40" stroke="#c9a227" stroke-width="0.6"/>
+          <line x1="20" y1="46" x2="45" y2="46" stroke="#c9a227" stroke-width="0.6"/>
+          <text x="32" y="65" text-anchor="middle" fill="#fff" font-size="5">COIL</text>
+        </g>
+        <!-- LED de estado del relé -->
+        <circle id="relayLed" cx="75" cy="18" r="3" fill="#5a1a1a"/>
+        <text x="75" y="29" text-anchor="middle" fill="#fff" font-size="4">LED</text>
+
+        <!-- Contactos NO/NC/COM -->
+        <rect x="60" y="35" width="30" height="20" fill="#0a2344" stroke="#1e4d8f"/>
+        <text x="75" y="48" text-anchor="middle" fill="#fff" font-size="5" font-weight="bold">RELAY</text>
+        <text x="75" y="54" text-anchor="middle" fill="#ffd700" font-size="4">5V 10A</text>
+
+        <!-- Pines -->
+        <rect x="5" y="70" width="3" height="8" fill="#c0c0c0"/>
+        <rect x="18" y="70" width="3" height="8" fill="#c0c0c0"/>
+        <rect x="31" y="70" width="3" height="8" fill="#c0c0c0"/>
+        <text x="3" y="87" font-size="4.5" fill="#fff">VCC</text>
+        <text x="16" y="87" font-size="4.5" fill="#fff">GND</text>
+        <text x="29" y="87" font-size="4.5" fill="#fff">IN</text>
+
+        <text x="50" y="103" text-anchor="middle" class="comp-label">Módulo Relé 1CH</text>
+      </g>
+
+      <!-- Cables Relé → ESP32 -->
+      <!-- VCC rojo -->
+      <path d="M 406 250 Q 390 255, 380 235 L 353 222" stroke="#e74c3c" stroke-width="2" fill="none"/>
+      <!-- GND negro -->
+      <path d="M 419 250 Q 400 260, 390 245 L 353 152" stroke="#2c3e50" stroke-width="2" fill="none"/>
+      <!-- IN verde (señal digital) GPIO33 -->
+      <path d="M 432 250 Q 410 270, 380 260 L 353 180" stroke="#27ae60" stroke-width="2" fill="none"/>
+
+      <!-- Cables de potencia (gruesos) Relé → Bomba -->
+      <path d="M 500 215 Q 600 215, 700 360" stroke="#e74c3c" stroke-width="3.5" fill="none"/>
+      <path d="M 500 225 Q 620 225, 710 380" stroke="#2c3e50" stroke-width="3.5" fill="none"/>
+
+      <!-- =================== TANQUE DE AGUA =================== -->
+      <g id="tank" transform="translate(600,280)">
+        <!-- Tapa del tanque -->
+        <rect x="-5" y="-10" width="170" height="12" rx="3" fill="#2a3040" stroke="#444"/>
+        <rect x="70" y="-18" width="30" height="10" rx="2" fill="#2a3040" stroke="#444"/>
+        <!-- Cuerpo transparente del tanque -->
+        <rect x="0" y="2" width="160" height="200" rx="4" fill="url(#tankGrad)" stroke="#5dc9f5" stroke-width="1.5" opacity="0.7"/>
+
+        <!-- AGUA dentro (se anima con JS) -->
+        <clipPath id="tankClip">
+          <rect x="2" y="4" width="156" height="196" rx="3"/>
+        </clipPath>
+        <g clip-path="url(#tankClip)">
+          <rect id="waterLevel" x="2" y="40" width="156" height="160" fill="url(#waterGrad)"/>
+          <!-- Onda superficie -->
+          <path id="waterSurface" d="M 2 40 Q 20 36, 40 40 T 80 40 T 120 40 T 160 40 L 160 50 L 2 50 Z" fill="#74d5f9" opacity="0.6"/>
+
+          <!-- Burbujas animadas -->
+          <g id="bubbles"></g>
+        </g>
+
+        <!-- Marcas de nivel -->
+        <g font-size="6" fill="#5dc9f5" font-family="Courier New">
+          <line x1="160" y1="40" x2="168" y2="40" stroke="#5dc9f5"/>
+          <text x="172" y="42">100%</text>
+          <line x1="160" y1="80" x2="168" y2="80" stroke="#5dc9f5"/>
+          <text x="172" y="82">75%</text>
+          <line x1="160" y1="120" x2="168" y2="120" stroke="#5dc9f5"/>
+          <text x="172" y="122">50%</text>
+          <line x1="160" y1="160" x2="168" y2="160" stroke="#5dc9f5"/>
+          <text x="172" y="162">25%</text>
+        </g>
+
+        <!-- Bomba sumergible DENTRO del tanque -->
+        <g id="pump" transform="translate(45,140)">
+          <g class="pump-body" id="pumpBody">
+            <!-- Carcasa -->
+            <rect x="0" y="0" width="60" height="55" rx="5" fill="url(#pumpGrad)" stroke="#222" stroke-width="1.5"/>
+            <!-- Motor superior -->
+            <circle cx="30" cy="15" r="11" fill="#555" stroke="#222"/>
+            <!-- Rotor que gira -->
+            <g class="pump-rotor" id="pumpRotor">
+              <circle cx="30" cy="15" r="8" fill="#333"/>
+              <rect x="28.5" y="8" width="3" height="14" fill="#888"/>
+              <rect x="23" y="13.5" width="14" height="3" fill="#888"/>
+            </g>
+            <!-- Entrada de agua (rejilla inferior) -->
+            <rect x="5" y="45" width="50" height="8" fill="#222"/>
+            <g stroke="#555" stroke-width="0.8">
+              <line x1="10" y1="45" x2="10" y2="53"/>
+              <line x1="17" y1="45" x2="17" y2="53"/>
+              <line x1="24" y1="45" x2="24" y2="53"/>
+              <line x1="31" y1="45" x2="31" y2="53"/>
+              <line x1="38" y1="45" x2="38" y2="53"/>
+              <line x1="45" y1="45" x2="45" y2="53"/>
+              <line x1="52" y1="45" x2="52" y2="53"/>
+            </g>
+            <!-- Tubo de salida superior -->
+            <rect x="25" y="-12" width="10" height="15" fill="#555" stroke="#222"/>
+            <rect x="23" y="-14" width="14" height="4" fill="#888" stroke="#222"/>
+
+            <text x="30" y="35" text-anchor="middle" fill="#fff" font-size="4" font-weight="bold">PUMP 5V</text>
+          </g>
+        </g>
+
+        <text x="80" y="220" text-anchor="middle" class="comp-label">Tanque + Bomba Sumergible</text>
+      </g>
+
+      <!-- =================== MANGUERA HACIA PLANTA =================== -->
+      <!-- Tubo curvo desde tapa del tanque -->
+      <path id="hose" d="M 685 272 Q 700 240, 770 240 Q 840 240, 870 320 Q 890 380, 880 450" stroke="#2d3d2d" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path d="M 685 272 Q 700 240, 770 240 Q 840 240, 870 320 Q 890 380, 880 450" stroke="#556b55" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+      <!-- Gotitas de agua desde boquilla (solo visibles cuando bomba ON) -->
+      <g id="waterDrops" opacity="0"></g>
+
+      <!-- =================== PLANTA =================== -->
+      <g id="plant" transform="translate(830,430)">
+        <!-- Maceta -->
+        <path d="M 0 80 L 10 130 L 80 130 L 90 80 Z" fill="#8b4513" stroke="#5a2f0c"/>
+        <rect x="-3" y="75" width="96" height="10" rx="2" fill="#a0522d" stroke="#5a2f0c"/>
+        <!-- Tierra -->
+        <ellipse cx="45" cy="82" rx="45" ry="5" fill="#3d2914"/>
+
+        <!-- Tallo -->
+        <path id="plantStem" d="M 45 80 Q 42 60, 44 40 Q 47 20, 45 0" stroke="#2d5a2d" stroke-width="3" fill="none"/>
+        <!-- Hojas (su color cambia con humedad) -->
+        <g id="plantLeaves">
+          <ellipse id="leaf1" cx="30" cy="50" rx="14" ry="7" fill="url(#leafGrad)" transform="rotate(-30 30 50)"/>
+          <ellipse id="leaf2" cx="60" cy="40" rx="14" ry="7" fill="url(#leafGrad)" transform="rotate(25 60 40)"/>
+          <ellipse id="leaf3" cx="25" cy="25" rx="12" ry="6" fill="url(#leafGrad)" transform="rotate(-40 25 25)"/>
+          <ellipse id="leaf4" cx="65" cy="15" rx="12" ry="6" fill="url(#leafGrad)" transform="rotate(35 65 15)"/>
+          <ellipse id="leaf5" cx="45" cy="5" rx="10" ry="5" fill="url(#leafGrad)"/>
+          <!-- Flor -->
+          <g id="flower" opacity="1">
+            <circle cx="45" cy="-10" r="4" fill="#ffd93d"/>
+            <circle cx="40" cy="-13" r="3" fill="#ff6b9d"/>
+            <circle cx="50" cy="-13" r="3" fill="#ff6b9d"/>
+            <circle cx="42" cy="-7" r="3" fill="#ff6b9d"/>
+            <circle cx="48" cy="-7" r="3" fill="#ff6b9d"/>
+          </g>
+        </g>
+        <text x="45" y="155" text-anchor="middle" class="comp-label">Planta</text>
+      </g>
+
+      <!-- =================== LEYENDA DE CABLES =================== -->
+      <g id="legend" transform="translate(780,40)">
+        <rect x="0" y="0" width="200" height="110" rx="6" fill="#11151c" stroke="#333" opacity="0.95"/>
+        <text x="100" y="15" text-anchor="middle" fill="#00d9ff" font-size="9" font-weight="bold" font-family="Arial">LEYENDA DE CABLES</text>
+        <g font-size="8" font-family="Arial">
+          <line x1="10" y1="28" x2="30" y2="28" stroke="#e74c3c" stroke-width="2.5"/>
+          <text x="35" y="31" fill="#fff">VCC / 5V / 3V3</text>
+          <line x1="10" y1="42" x2="30" y2="42" stroke="#2c3e50" stroke-width="2.5"/>
+          <text x="35" y="45" fill="#fff">GND (Tierra)</text>
+          <line x1="10" y1="56" x2="30" y2="56" stroke="#27ae60" stroke-width="2.5"/>
+          <text x="35" y="59" fill="#fff">Señal Digital</text>
+          <line x1="10" y1="70" x2="30" y2="70" stroke="#f1c40f" stroke-width="2.5"/>
+          <text x="35" y="73" fill="#fff">Señal Analógica</text>
+          <line x1="10" y1="84" x2="30" y2="84" stroke="#3498db" stroke-width="2.5"/>
+          <text x="35" y="87" fill="#fff">I²C SCL</text>
+          <line x1="10" y1="98" x2="30" y2="98" stroke="#e67e22" stroke-width="2.5"/>
+          <text x="35" y="101" fill="#fff">I²C SDA</text>
+        </g>
+      </g>
+
+    </svg>
+  </section>
+
+  <!-- ============ PANEL LATERAL ============ -->
+  <aside class="panel">
+
+    <div class="card">
+      <h3>🎛️ Modo de Operación</h3>
+      <div class="mode-buttons">
+        <button class="mode-btn active" id="modeAuto">AUTO</button>
+        <button class="mode-btn" id="modeManual">MANUAL</button>
+      </div>
+
+      <div class="toggle-row">
+        <span style="font-size:13px;color:var(--text-dim)">Bomba Manual (MQTT)</span>
+        <label class="switch">
+          <input type="checkbox" id="pumpManual" disabled>
+          <span class="slider-toggle"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🌡️ Sensores (Simulados)</h3>
+
+      <div class="control-row">
+        <div class="control-label">
+          <span>Humedad del suelo</span>
+          <span class="value"><span id="humVal">65</span>%</span>
+        </div>
+        <input type="range" id="humSlider" min="0" max="100" value="65">
+      </div>
+
+      <div class="control-row">
+        <div class="control-label">
+          <span>Temperatura ambiente</span>
+          <span class="value"><span id="tempVal">25.0</span>°C</span>
+        </div>
+        <input type="range" id="tempSlider" min="0" max="50" step="0.5" value="25">
+      </div>
+
+      <div class="control-row">
+        <div class="control-label">
+          <span>Humedad ambiente (DHT)</span>
+          <span class="value"><span id="humAmbVal">60</span>%</span>
+        </div>
+        <input type="range" id="humAmbSlider" min="0" max="100" value="60">
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>📡 MQTT Payload</h3>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">
+        Topic: <code style="color:#00d9ff">/riego/datos</code>
+      </div>
+      <div class="mqtt-json" id="mqttJson">{"humSuelo":65,"temp":25.0,"riego":false}</div>
+    </div>
+
+    <div class="card">
+      <h3>🖥️ Serial Monitor</h3>
+      <div class="terminal" id="terminal"></div>
+    </div>
+
+  </aside>
+</div>
+
+<script>
+/* ===================== ESTADO GLOBAL ===================== */
+const state = {
+  soilHum: 65,          // humedad suelo %
+  temp: 25.0,           // temperatura °C
+  ambHum: 60,           // humedad ambiental %
+  waterLevel: 100,      // nivel tanque %
+  pumpOn: false,        // estado bomba
+  wifiConnected: true,
+  mqttConnected: true,
+  mode: 'AUTO',         // AUTO | MANUAL
+  manualPump: false,
+  lastIrrigationTime: null,
+  thresholdHum: 40,     // < 40% activa
+  thresholdTemp: 35,    // > 35°C activa
+};
+
+/* ===================== REFERENCIAS DOM ===================== */
+const $ = id => document.getElementById(id);
+
+const humSlider = $('humSlider'), tempSlider = $('tempSlider'), humAmbSlider = $('humAmbSlider');
+const humVal = $('humVal'), tempVal = $('tempVal'), humAmbVal = $('humAmbVal');
+const pumpManual = $('pumpManual');
+const modeAuto = $('modeAuto'), modeManual = $('modeManual');
+const terminal = $('terminal');
+const mqttJsonEl = $('mqttJson');
+
+// SVG refs
+const wifiLed = $('wifiLed');
+const soilValLabel = $('soilValLabel');
+const soilDrops = $('soilDrops');
+const dhtTemp = $('dhtTemp'), dhtHum = $('dhtHum');
+const oledHum = $('oledHum'), oledTemp = $('oledTemp'), oledPump = $('oledPump');
+const relayCoil = $('relayCoil'), relayLed = $('relayLed');
+const pumpBody = $('pumpBody'), pumpRotor = $('pumpRotor');
+const waterLevel = $('waterLevel'), waterSurface = $('waterSurface');
+const bubbles = $('bubbles'), waterDrops = $('waterDrops');
+const leaf1 = $('leaf1'), leaf2 = $('leaf2'), leaf3 = $('leaf3'), leaf4 = $('leaf4'), leaf5 = $('leaf5'), flower = $('flower');
+const plantStem = $('plantStem');
+
+// Badges
+const wifiBadge = $('wifiBadge'), mqttBadge = $('mqttBadge'), pumpBadge = $('pumpBadge'), lastIrrigBadge = $('lastIrrigBadge');
+
+/* ===================== HELPERS ===================== */
+function nowStr() {
+  const d = new Date();
+  return d.toTimeString().split(' ')[0];
+}
+function log(msg, cls='') {
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-time">[${nowStr()}]</span> <span class="${cls}">${msg}</span>`;
+  terminal.appendChild(line);
+  terminal.scrollTop = terminal.scrollHeight;
+  while (terminal.children.length > 150) terminal.removeChild(terminal.firstChild);
+}
+
+/* ===================== RENDER DE ESTADO ===================== */
+function updateMQTTJson() {
+  const obj = {
+    humSuelo: parseInt(state.soilHum),
+    temp: parseFloat(state.temp.toFixed(1)),
+    riego: state.pumpOn
+  };
+  mqttJsonEl.textContent = JSON.stringify(obj);
+  return obj;
+}
+
+function updateBadges() {
+  wifiBadge.className = 'badge ' + (state.wifiConnected ? 'on' : 'off');
+  wifiBadge.innerHTML = `<span class="dot"></span>Wi-Fi ${state.wifiConnected ? 'conectado' : 'desconectado'}`;
+
+  mqttBadge.className = 'badge ' + (state.mqttConnected ? 'on' : 'off');
+  mqttBadge.innerHTML = `<span class="dot"></span>MQTT ${state.mqttConnected ? 'activo' : 'offline'}`;
+
+  pumpBadge.className = 'badge ' + (state.pumpOn ? 'on' : 'off');
+  pumpBadge.innerHTML = `<span class="dot"></span>Bomba: ${state.pumpOn ? 'ON' : 'OFF'}`;
+
+  if (state.lastIrrigationTime) {
+    const secs = Math.floor((Date.now() - state.lastIrrigationTime) / 1000);
+    lastIrrigBadge.innerHTML = `<span class="dot"></span>Último riego: hace ${secs}s`;
+    lastIrrigBadge.className = 'badge ' + (secs < 30 ? 'on' : 'warn');
+  } else {
+    lastIrrigBadge.innerHTML = `<span class="dot"></span>Último riego: --`;
+    lastIrrigBadge.className = 'badge warn';
+  }
+}
+
+function updateVisuals() {
+  // Sliders values
+  humVal.textContent = state.soilHum;
+  tempVal.textContent = state.temp.toFixed(1);
+  humAmbVal.textContent = state.ambHum;
+
+  // Sensor suelo
+  soilValLabel.textContent = state.soilHum + '%';
+  // ajustar opacidad de gotas del suelo
+  soilDrops.setAttribute('opacity', (state.soilHum / 100 * 0.9 + 0.1).toFixed(2));
+
+  // DHT
+  dhtTemp.textContent = state.temp.toFixed(1) + '°C';
+  dhtHum.textContent = state.ambHum.toFixed(1) + '%';
+
+  // OLED
+  oledHum.textContent = state.soilHum + '%';
+  oledTemp.textContent = state.temp.toFixed(1) + '°C';
+  oledPump.textContent = state.pumpOn ? 'ON' : 'OFF';
+  oledPump.setAttribute('fill', state.pumpOn ? '#2ecc71' : '#e74c3c');
+  oledHum.setAttribute('fill', state.soilHum < 40 ? '#ff7675' : '#2ecc71');
+
+  // Planta: color & marchitez según humedad del suelo
+  const health = Math.min(1, Math.max(0, state.soilHum / 70)); // 0..1
+  const dryR = 139, dryG = 100, dryB = 40;        // café marchito
+  const healthyR = 46, healthyG = 204, healthyB = 113; // verde
+  const r = Math.round(dryR + (healthyR - dryR) * health);
+  const g = Math.round(dryG + (healthyG - dryG) * health);
+  const b = Math.round(dryB + (healthyB - dryB) * health);
+  const leafColor = `rgb(${r},${g},${b})`;
+  [leaf1, leaf2, leaf3, leaf4, leaf5].forEach(l => l.setAttribute('fill', leafColor));
+  // Tallo también
+  plantStem.setAttribute('stroke', health > 0.5 ? '#2d5a2d' : '#6b5a3d');
+  // Flor se marchita
+  flower.setAttribute('opacity', health > 0.6 ? '1' : '0.3');
+  // Hojas caídas
+  if (health < 0.4) {
+    leaf1.setAttribute('transform', 'rotate(-60 30 50)');
+    leaf2.setAttribute('transform', 'rotate(55 60 40)');
+    leaf3.setAttribute('transform', 'rotate(-70 25 25)');
+    leaf4.setAttribute('transform', 'rotate(65 65 15)');
+  } else {
+    leaf1.setAttribute('transform', 'rotate(-30 30 50)');
+    leaf2.setAttribute('transform', 'rotate(25 60 40)');
+    leaf3.setAttribute('transform', 'rotate(-40 25 25)');
+    leaf4.setAttribute('transform', 'rotate(35 65 15)');
+  }
+
+  // Wi-Fi LED
+  wifiLed.setAttribute('class', 'wifi-led ' + (state.wifiConnected ? 'connected' : 'disconnected'));
+
+  // Relé visual
+  if (state.pumpOn) {
+    relayCoil.classList.add('active');
+    relayLed.setAttribute('fill', '#2ecc71');
+    relayLed.setAttribute('filter', 'url(#glow)');
+  } else {
+    relayCoil.classList.remove('active');
+    relayLed.setAttribute('fill', '#5a1a1a');
+    relayLed.removeAttribute('filter');
+  }
+
+  // Bomba animación
+  if (state.pumpOn) {
+    pumpRotor.classList.add('active');
+    pumpBody.classList.add('active');
+  } else {
+    pumpRotor.classList.remove('active');
+    pumpBody.classList.remove('active');
+  }
+
+  // Nivel tanque (visual): el <rect> va de y=? a y=200; mapeamos waterLevel 0..100 a y entre 196..40
+  const topY = 200 - (state.waterLevel / 100) * 196;
+  const h = 200 - topY;
+  waterLevel.setAttribute('y', topY);
+  waterLevel.setAttribute('height', h);
+  // Superficie del agua
+  waterSurface.setAttribute('d', `M 2 ${topY} Q 20 ${topY-4}, 40 ${topY} T 80 ${topY} T 120 ${topY} T 160 ${topY} L 160 ${topY+8} L 2 ${topY+8} Z`);
+
+  updateBadges();
+}
+
+/* ===================== BURBUJAS (tanque) ===================== */
+function spawnBubble() {
+  if (!state.pumpOn || state.waterLevel <= 0) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  const circle = document.createElementNS(ns, 'circle');
+  const x = 50 + Math.random() * 50;
+  const y = 190;
+  const r = 1 + Math.random() * 2.5;
+  circle.setAttribute('cx', x);
+  circle.setAttribute('cy', y);
+  circle.setAttribute('r', r);
+  circle.setAttribute('fill', 'rgba(255,255,255,0.7)');
+  circle.setAttribute('class', 'bubble');
+  circle.style.animationDuration = (1.2 + Math.random() * 1.5) + 's';
+  bubbles.appendChild(circle);
+  setTimeout(() => circle.remove(), 3500);
+}
+
+/* ===================== GOTAS DE RIEGO ===================== */
+function spawnWaterDrop() {
+  if (!state.pumpOn) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  const drop = document.createElementNS(ns, 'ellipse');
+  // Boquilla está en aprox (880, 450)
+  const offsetX = (Math.random() - 0.5) * 30;
+  drop.setAttribute('cx', 880 + offsetX);
+  drop.setAttribute('cy', 455);
+  drop.setAttribute('rx', 2);
+  drop.setAttribute('ry', 3.5);
+  drop.setAttribute('fill', '#5dc9f5');
+  drop.setAttribute('class', 'water-drop');
+  drop.style.animationDuration = (0.8 + Math.random() * 0.4) + 's';
+  waterDrops.appendChild(drop);
+  setTimeout(() => drop.remove(), 1400);
+}
+
+/* ===================== LÓGICA BOMBA ===================== */
+function turnPumpOn(reason) {
+  if (state.pumpOn) return;
+  if (state.waterLevel <= 0) {
+    log('⚠ No se puede activar bomba: TANQUE VACÍO', 'log-err');
+    return;
+  }
+  state.pumpOn = true;
+  state.lastIrrigationTime = Date.now();
+  waterDrops.setAttribute('opacity', '1');
+  log(`→ ACTIVANDO BOMBA · motivo: ${reason}`, 'log-warn');
+  log(`GPIO33 → HIGH · Relé cerrado · Bomba ON`, 'log-ok');
+}
+function turnPumpOff(reason) {
+  if (!state.pumpOn) return;
+  state.pumpOn = false;
+  waterDrops.setAttribute('opacity', '0');
+  log(`→ DESACTIVANDO BOMBA · motivo: ${reason}`, 'log-warn');
+  log(`GPIO33 → LOW · Relé abierto · Bomba OFF`, 'log-ok');
+}
+
+/* ===================== CICLO AUTOMÁTICO (cada 3s) ===================== */
+function automaticCycle() {
+  if (state.mode !== 'AUTO') return;
+  log(`📡 Leyendo sensores... humSuelo=${state.soilHum}% temp=${state.temp.toFixed(1)}°C humAmb=${state.ambHum}%`);
+
+  const shouldIrrigateHum = state.soilHum < state.thresholdHum;
+  const shouldIrrigateTemp = state.temp > state.thresholdTemp;
+
+  if (shouldIrrigateHum) {
+    log(`Humedad: ${state.soilHum}% → BAJO UMBRAL (${state.thresholdHum}%)`, 'log-warn');
+  }
+  if (shouldIrrigateTemp) {
+    log(`Temperatura: ${state.temp.toFixed(1)}°C → SOBRE UMBRAL (${state.thresholdTemp}°C)`, 'log-warn');
+  }
+
+  if (shouldIrrigateHum || shouldIrrigateTemp) {
+    if (!state.pumpOn) {
+      const reason = shouldIrrigateHum && shouldIrrigateTemp ? 'humedad baja + temp alta'
+                    : shouldIrrigateHum ? 'humedad suelo baja' : 'temperatura alta';
+      turnPumpOn(reason);
+    }
+  } else {
+    if (state.pumpOn) {
+      turnPumpOff('condiciones normales');
+    }
+  }
+
+  // Publicar MQTT
+  const payload = updateMQTTJson();
+  log(`MQTT PUBLISH → /riego/datos → ${JSON.stringify(payload)}`, 'log-mqtt');
+}
+
+/* ===================== CICLO FÍSICO (cada 250ms) ===================== */
+function physicsTick() {
+  // Si bomba está ON, bajar nivel de tanque y aumentar humedad del suelo
+  if (state.pumpOn) {
+    if (state.waterLevel > 0) {
+      state.waterLevel = Math.max(0, state.waterLevel - 0.25);
+      // Aumentar humedad del suelo gradualmente (simula agua llegando a la planta)
+      state.soilHum = Math.min(100, state.soilHum + 0.35);
+      humSlider.value = state.soilHum;
+    } else {
+      turnPumpOff('TANQUE VACÍO');
+      log('⚠ Tanque sin agua. Detener bomba', 'log-err');
+    }
+    // Burbujas
+    if (Math.random() < 0.6) spawnBubble();
+    // Gotitas en planta
+    if (Math.random() < 0.8) spawnWaterDrop();
+  } else {
+    // Evaporación lenta del suelo (opcional, solo si no se mueve slider)
+    if (state.temp > 30 && Math.random() < 0.05) {
+      state.soilHum = Math.max(0, state.soilHum - 0.3);
+      humSlider.value = state.soilHum;
+    }
+  }
+  updateVisuals();
+}
+
+/* ===================== EVENTS ===================== */
+humSlider.addEventListener('input', e => {
+  state.soilHum = parseInt(e.target.value);
+  updateVisuals();
+  updateMQTTJson();
+});
+tempSlider.addEventListener('input', e => {
+  state.temp = parseFloat(e.target.value);
+  updateVisuals();
+  updateMQTTJson();
+});
+humAmbSlider.addEventListener('input', e => {
+  state.ambHum = parseInt(e.target.value);
+  updateVisuals();
+});
+
+modeAuto.addEventListener('click', () => {
+  state.mode = 'AUTO';
+  modeAuto.classList.add('active');
+  modeManual.classList.remove('active');
+  pumpManual.disabled = true;
+  pumpManual.checked = false;
+  state.manualPump = false;
+  log('→ Modo cambiado a AUTOMÁTICO', 'log-ok');
+});
+modeManual.addEventListener('click', () => {
+  state.mode = 'MANUAL';
+  modeManual.classList.add('active');
+  modeAuto.classList.remove('active');
+  pumpManual.disabled = false;
+  log('→ Modo cambiado a MANUAL · control MQTT activo', 'log-warn');
+});
+
+pumpManual.addEventListener('change', e => {
+  if (state.mode !== 'MANUAL') return;
+  state.manualPump = e.target.checked;
+  if (state.manualPump) {
+    turnPumpOn('comando manual MQTT');
+    log('MQTT CMD RECEIVED → /riego/comando → {"riego":true}', 'log-mqtt');
+  } else {
+    turnPumpOff('comando manual MQTT');
+    log('MQTT CMD RECEIVED → /riego/comando → {"riego":false}', 'log-mqtt');
+  }
+  updateMQTTJson();
+});
+
+/* ===================== BOOT ===================== */
+function bootSequence() {
+  log('==== ESP32 Booting ====', 'log-ok');
+  setTimeout(() => log('Iniciando Wi-Fi...', 'log-ok'), 300);
+  setTimeout(() => {
+    log('✓ Wi-Fi conectado a "IoT_Network" · IP: 192.168.1.47', 'log-ok');
+    state.wifiConnected = true;
+    updateVisuals();
+  }, 900);
+  setTimeout(() => log('Conectando a MQTT broker mqtt://broker.hivemq.com:1883', 'log-mqtt'), 1200);
+  setTimeout(() => {
+    log('✓ MQTT conectado · Suscrito a /riego/comando', 'log-mqtt');
+    state.mqttConnected = true;
+    updateVisuals();
+  }, 1800);
+  setTimeout(() => log('✓ DHT22 inicializado en GPIO4', 'log-ok'), 2100);
+  setTimeout(() => log('✓ OLED SSD1306 I²C (0x3C) iniciado', 'log-ok'), 2300);
+  setTimeout(() => log('✓ Relé configurado en GPIO33', 'log-ok'), 2500);
+  setTimeout(() => log('Sistema listo. Modo: AUTO. Umbral hum<40% · temp>35°C', 'log-warn'), 2800);
+}
+
+/* ===================== INIT ===================== */
+updateVisuals();
+updateMQTTJson();
+bootSequence();
+
+// Ciclos
+setInterval(physicsTick, 250);
+setInterval(automaticCycle, 3000);
+// Actualizar "hace X seg" cada segundo
+setInterval(updateBadges, 1000);
+
+</script>
+</body>
+</html>
