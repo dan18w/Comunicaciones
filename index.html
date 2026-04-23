@@ -52,6 +52,21 @@
     min-height: 100vh;
   }
 
+  @media (max-width: 768px) {
+    .app {
+      grid-template-columns: 1fr;
+      gap: 12px;
+      padding: 12px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .app {
+      gap: 8px;
+      padding: 8px;
+    }
+  }
+
   /* ===== HEADER ===== */
   header {
     grid-column: 1 / -1;
@@ -63,6 +78,8 @@
     border-radius: 12px;
     padding: 14px 22px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    flex-wrap: wrap;
+    gap: 10px;
   }
   header h1 {
     font-size: 20px;
@@ -70,6 +87,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex: 1;
+    min-width: 200px;
   }
   header h1::before {
     content: '';
@@ -83,6 +102,42 @@
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+  }
+
+  @media (max-width: 768px) {
+    header {
+      padding: 10px 16px;
+      flex-direction: column;
+    }
+    header h1 {
+      font-size: 16px;
+      min-width: 100%;
+    }
+    .header-status {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+
+  @media (max-width: 480px) {
+    header {
+      padding: 8px 12px;
+    }
+    header h1 {
+      font-size: 14px;
+      gap: 8px;
+    }
+    header h1::before {
+      width: 8px;
+      height: 8px;
+    }
+    .header-status {
+      gap: 6px;
+    }
+    .badge {
+      font-size: 10px;
+      padding: 4px 8px;
+    }
   }
   .badge {
     display: inline-flex;
@@ -146,11 +201,37 @@
     z-index: 1;
   }
 
+  @media (max-width: 768px) {
+    .canvas-area {
+      min-height: 400px;
+      padding: 8px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .canvas-area {
+      min-height: 300px;
+      padding: 6px;
+    }
+  }
+
   /* ===== CONTROL PANEL ===== */
   .panel {
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+
+  @media (max-width: 768px) {
+    .panel {
+      gap: 10px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .panel {
+      gap: 8px;
+    }
   }
   .card {
     background: linear-gradient(180deg, var(--panel-bg), #1b1e26);
@@ -222,6 +303,20 @@
     cursor: pointer;
   }
 
+  @media (max-width: 768px) {
+    input[type="range"] {
+      height: 8px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      width: 22px;
+      height: 22px;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+    }
+  }
+
   .toggle-row {
     display: flex;
     justify-content: space-between;
@@ -280,6 +375,17 @@
     color: #0f1115;
     border-color: var(--accent);
     box-shadow: 0 0 12px rgba(0,217,255,0.4);
+  }
+
+  @media (max-width: 480px) {
+    .mode-btn {
+      padding: 10px 6px;
+      font-size: 11px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
   }
 
   .mqtt-json {
